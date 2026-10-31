@@ -13,24 +13,6 @@ Elderly users often struggle with complex apps, small fonts, or navigation hurdl
 
 ---
 
-## 🚀 Quick Start (How to Run)
-
-### Option 1: One-Click Launcher (Windows)
-Double-click:
-```
-start_backend.bat
-```
-
-### Option 2: Command Line
-```powershell
-python run_backend.py
-```
-
-Then open your browser at:
-👉 **[http://localhost:5000](https://tanmay-creates.github.io/Assist_Me_Submission/)**
-
----
-
 ## 💡 Key Features & Innovations
 
 - 🎙️ **Voice AI with Web Speech API**: Real-time voice recognition and natural speech synthesis narration.
@@ -52,12 +34,4 @@ Then open your browser at:
 - **NLP**: Rule-based text parsing, entity extraction, and safety classification
 - **API**: Full REST API (`/api/requests`, `/api/requests/active`, `/api/parse`, `/api/users`, `/api/stats`)
 
----
-
-## 🧪 Automated Test Suite
-
-Run the full end-to-end backend test suite:
-```powershell
-python backend/test_backend.py
-```
 *(All 5 test suites pass with 100% code coverage)*
