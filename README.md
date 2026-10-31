@@ -33,5 +33,3 @@ Elderly users often struggle with complex apps, small fonts, or navigation hurdl
 - **Frontend**: HTML5, Modern React architecture, Tailwind CSS, Lucide Icons, Web Speech API, Web Audio API
 - **NLP**: Rule-based text parsing, entity extraction, and safety classification
 - **API**: Full REST API (`/api/requests`, `/api/requests/active`, `/api/parse`, `/api/users`, `/api/stats`)
-
-*(All 5 test suites pass with 100% code coverage)*
