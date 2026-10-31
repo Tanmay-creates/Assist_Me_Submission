@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en" data-textsize="normal">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Assist Me · Voice AI Elder Care Platform</title>
+  
+  <!-- Google Fonts: Nunito & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              DEFAULT: '#1E5EFF',
+              light: '#EAF2FF',
+              dark: '#1547C9',
+            },
+            success: '#18864B',
+            successLight: '#E6F4ED',
+            error: '#C62828',
+            errorLight: '#FCEAEA',
+            bg: '#FAFBFD',
+            ink: '#172033',
+            muted: '#536078',
+          },
+          fontFamily: {
+            sans: ['Nunito', 'system-ui', 'sans-serif'],
+          },
+          boxShadow: {
+            soft: '0 4px 24px -8px rgba(23, 32, 51, 0.10)',
+            ring: '0 0 0 8px rgba(30, 94, 255, 0.12)',
+            mic: '0 16px 40px -12px rgba(30, 94, 255, 0.45)',
+          },
+          keyframes: {
+            pulseRing: {
+              '0%': { transform: 'scale(0.95)', opacity: '0.8' },
+              '70%': { transform: 'scale(1.3)', opacity: '0' },
+              '100%': { transform: 'scale(1.3)', opacity: '0' },
+            },
+            fadeUp: {
+              '0%': { opacity: '0', transform: 'translateY(8px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            soundWave: {
+              '0%, 100%': { height: '6px' },
+              '50%': { height: '24px' }
+            }
+          },
+          animation: {
+            pulseRing: 'pulseRing 1.8s ease-out infinite',
+            fadeUp: 'fadeUp 0.3s ease-out both',
+            soundWave: 'soundWave 1.2s ease-in-out infinite',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    body {
+      background-color: #fafbfd;
+      color: #172033;
+      font-family: 'Nunito', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    html[data-textsize='large'] { font-size: 18px; }
+    html[data-textsize='xlarge'] { font-size: 21px; }
+
+    *:focus-visible {
+      outline: 3px solid #1e5eff;
+      outline-offset: 3px;
+      border-radius: 8px;
+    }
+
+    .wave-bar {
+      display: inline-block;
+      width: 4px;
+      background-color: #1E5EFF;
+      border-radius: 2px;
+      margin: 0 1.5px;
+      animation: soundWave 1s ease-in-out infinite;
+    }
+    .wave-bar:nth-child(2) { animation-delay: 0.15s; }
+    .wave-bar:nth-child(3) { animation-delay: 0.3s; }
+    .wave-bar:nth-child(4) { animation-delay: 0.45s; }
+    .wave-bar:nth-child(5) { animation-delay: 0.2s; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-primary-light selection:text-primary">
+
+  <!-- APP ROOT CONTAINER -->
+  <div id="app" class="min-h-screen flex flex-col"></div>
+
+  <script>
+    // Audio Chime Feedback
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playChime(type = 'success') {
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+        if (type === 'success') {
+          osc.frequency.setValueAtTime(523.25, now);
+          osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.1);
+          osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.2);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+          osc.start(now);
+          osc.stop(now + 0.5);
+        } else if (type === 'click') {
+          osc.frequency.setValueAtTime(440, now);
+          gain.gain.setValueAtTime(0.1, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+          osc.start(now);
+          osc.stop(now + 0.1);
+        }
+      } catch (e) {}
+    }
+
+    // STATE
+    const state = {
+      started: false,
+      role: 'elder',
+      textSize: 'normal',
+      voiceEnabled: true,
+      activeRequest: null,
+      history: [],
+      stats: { totalRequests: 3, completedDeliveries: 2, totalDeliveredValue: 550 },
+      isListening: false,
+      isSpeaking: false,
+      elderStep: 'home',
+      familyStep: 'home',
+      helperStep: 'home',
+      pending: null,
+      callingModal: false,
+      rejectModal: false,
+      apiOnline: true
+    };
+
+    // BACKEND API CLIENT WITH BROWSER FALLBACK (WORKS ON GITHUB PAGES!)
+    const API = {
+      async getActive() {
+        try {
+          const res = await fetch('/api/requests/active');
+          if (res.ok) return await res.json();
+        } catch (e) {
+          state.apiOnline = false;
+        }
+        // LocalStorage fallback for GitHub Pages
+        const local = localStorage.getItem('assist_me_active');
+        return local ? JSON.parse(local) : null;
+      },
+      async getHistory() {
+        try {
+          const res = await fetch('/api/requests/history');
+          if (res.ok) return await res.json();
+        } catch (e) {}
+        const local = localStorage.getItem('assist_me_history');
+        return local ? JSON.parse(local) : [
+          { id: 'h1', title: 'Groceries', description: 'Fresh fruits and bread', category: 'groceries', estimatedCost: 300, status: 'completed' },
+          { id: 'h2', title: 'Medicine', description: 'Blood pressure pills', category: 'medicine', estimatedCost: 250, status: 'completed' }
+        ];
+      },
+      async getStats() {
+        try {
+          const res = await fetch('/api/stats');
+          if (res.ok) return await res.json();
+        } catch (e) {}
+        return state.stats;
+      },
+      async createRequest(payload) {
+        try {
+          const res = await fetch('/api/requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) return await res.json();
+        } catch (e) {}
+        // Fallback save to LocalStorage
+        payload.id = 'req_' + Date.now();
+        localStorage.setItem('assist_me_active', JSON.stringify(payload));
+        return payload;
+      },
+      async updateStatus(id, status, rejectReason, performedBy) {
+        try {
+          const res = await fetch(`/api/requests/${id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, rejectReason, performedBy })
+          });
+          if (res.ok) return await res.json();
+        } catch (e) {}
+        if (state.activeRequest) {
+          state.activeRequest.status = status;
+          if (rejectReason) state.activeRequest.rejectReason = rejectReason;
+          localStorage.setItem('assist_me_active', JSON.stringify(state.activeRequest));
+          if (status === 'completed' || status === 'rejected') {
+            state.history = [state.activeRequest, ...state.history];
+            localStorage.setItem('assist_me_history', JSON.stringify(state.history));
+            if (status === 'completed') {
+              state.stats.completedDeliveries += 1;
+              state.stats.totalDeliveredValue += (state.activeRequest.estimatedCost || 300);
+            }
+          }
+        }
+        return state.activeRequest;
+      },
+      async clearActive() {
+        try { await fetch('/api/requests/clear', { method: 'POST' }); } catch(e){}
+        localStorage.removeItem('assist_me_active');
+      },
+      async parseText(text) {
+        try {
+          const res = await fetch('/api/parse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+          });
+          if (res.ok) return await res.json();
+        } catch (e) {}
+        const isMed = /\b(medicine|medication|pill|tablet|prescription|syrup)\b/i.test(text);
+        const isRide = /\b(ride|car|cab|taxi|clinic|doctor|hospital)\b/i.test(text);
+        const isHome = /\b(home|clean|fix|repair|plumb|bulb)\b/i.test(text);
+        let category = 'groceries', title = 'Groceries', cost = 300;
+        if (isMed) { category = 'medicine'; title = 'Medicine'; cost = 250; }
+        else if (isRide) { category = 'ride'; title = 'A Ride'; cost = 200; }
+        else if (isHome) { category = 'home'; title = 'Help at Home'; cost = 500; }
+        return { category, title, description: text, estimatedCost: cost, isMedicine: isMed, needsSafetyReview: isMed };
+      }
+    };
+
+    // SPEECH SYNTHESIS
+    let cachedVoices = [];
+    function loadVoices() {
+      if ('speechSynthesis' in window) cachedVoices = window.speechSynthesis.getVoices();
+    }
+    if ('speechSynthesis' in window) {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    function updateSpeakingUI(isSpeaking, text = '') {
+      const banner = document.getElementById('aiSpeakingBanner');
+      const bannerText = document.getElementById('aiSpeakingText');
+      if (banner) {
+        if (isSpeaking) {
+          banner.classList.remove('hidden');
+          if (bannerText) bannerText.innerText = `AI: "${text}"`;
+        } else {
+          banner.classList.add('hidden');
+        }
+      }
+    }
+
+    function speakText(text, force = false) {
+      if (!state.voiceEnabled && !force) return;
+      if (!('speechSynthesis' in window)) return;
+      try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        window.speechSynthesis.cancel();
+        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+      } catch (e) {}
+
+      setTimeout(() => {
+        try {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.95;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+          if (!cachedVoices || cachedVoices.length === 0) cachedVoices = window.speechSynthesis.getVoices();
+          const preferredVoice = cachedVoices.find(v => 
+            (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Jenny') || v.name.includes('Samantha') || v.name.includes('Zira')) && v.lang.startsWith('en')
+          ) || cachedVoices.find(v => v.lang.startsWith('en')) || cachedVoices[0];
+
+          if (preferredVoice) utterance.voice = preferredVoice;
+          utterance.onstart = () => { state.isSpeaking = true; updateSpeakingUI(true, text); };
+          utterance.onend = () => { state.isSpeaking = false; updateSpeakingUI(false); };
+          utterance.onerror = () => { state.isSpeaking = false; updateSpeakingUI(false); };
+          window.speechSynthesis.speak(utterance);
+        } catch (err) {}
+      }, 50);
+    }
+
+    function cancelSpeech() {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      state.isSpeaking = false;
+      updateSpeakingUI(false);
+    }
+
+    // SPEECH RECOGNITION
+    let recognition = null;
+    function startVoiceListening(onResultCallback) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        speakText("Microphone not supported in this browser. Please type your request.");
+        state.elderStep = 'typing';
+        render();
+        return;
+      }
+      cancelSpeech();
+      try {
+        if (recognition) recognition.abort();
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+        recognition.onstart = () => { state.isListening = true; render(); };
+        recognition.onresult = (event) => {
+          state.isListening = false;
+          const transcript = event.results[0][0].transcript;
+          if (transcript) onResultCallback(transcript);
+        };
+        recognition.onerror = () => { state.isListening = false; render(); };
+        recognition.onend = () => { state.isListening = false; render(); };
+        recognition.start();
+      } catch (err) {
+        state.isListening = false;
+        state.elderStep = 'typing';
+        render();
+      }
+    }
+
+    function stopVoiceListening() {
+      if (recognition) { try { recognition.stop(); } catch(e){} state.isListening = false; }
+    }
+
+    // SMART SYNC
+    let lastDataHash = '';
+    async function syncBackend(forceRender = false) {
+      const [active, hist, stats] = await Promise.all([API.getActive(), API.getHistory(), API.getStats()]);
+      const newHash = JSON.stringify({ 
+        activeId: active ? active.id : null,
+        activeStatus: active ? active.status : null,
+        histLen: (hist || []).length,
+        stats 
+      });
+      const hasChanged = newHash !== lastDataHash;
+      lastDataHash = newHash;
+      state.activeRequest = active;
+      state.history = hist || [];
+      if (stats) state.stats = stats;
+
+      const isInteracting = state.isListening || state.elderStep === 'typing' || state.elderStep === 'listening' || state.callingModal || state.rejectModal;
+      if ((hasChanged || forceRender) && !isInteracting) {
+        render();
+      }
+    }
+
+    setInterval(() => { syncBackend(false); }, 3000);
+
+    // ACTIONS
+    async function handleTranscriptInput(text) {
+      const raw = text.trim();
+      if (!raw) return;
+      playChime('click');
+      const parsed = await API.parseText(raw);
+      state.pending = {
+        title: parsed.title,
+        description: parsed.description,
+        category: parsed.category,
+        estimatedCost: parsed.estimatedCost,
+        raw: raw,
+        isMedicine: parsed.isMedicine
+      };
+
+      if (parsed.isMedicine) {
+        state.elderStep = 'medicine_safety';
+        speakText("I want to make sure. You mentioned medicine. Is this your usual medicine, or something else?");
+      } else {
+        state.elderStep = 'confirm';
+        speakText(`I understood: ${parsed.description}. Estimated cost: ${parsed.estimatedCost} rupees. Should I send this to Sarah?`);
+      }
+      render();
+    }
+
+    async function sendConfirmedRequest(overrideDescription) {
+      if (!state.pending) return;
+      playChime('success');
+      const desc = overrideDescription || state.pending.description;
+      const payload = {
+        title: state.pending.title,
+        description: desc,
+        category: state.pending.category,
+        estimatedCost: state.pending.estimatedCost,
+        elder: 'Mary',
+        family: 'Sarah',
+        helper: 'Alex',
+        status: 'pending_family'
+      };
+      const created = await API.createRequest(payload);
+      state.activeRequest = created || payload;
+      state.elderStep = 'sent';
+      render();
+      speakText("Your request has been sent to Sarah for approval.");
+      syncBackend();
+    }
+
+    async function advanceStatus(newStatus, rejectReason) {
+      if (!state.activeRequest) return;
+      playChime('success');
+      const roleName = state.role === 'family' ? 'Sarah' : state.role === 'helper' ? 'Alex' : 'Mary';
+      const updated = await API.updateStatus(state.activeRequest.id, newStatus, rejectReason, roleName);
+      if (updated) state.activeRequest = updated;
+      if (newStatus === 'approved') speakText("Request approved! Alex has been notified to help.");
+      else if (newStatus === 'completed') speakText("Delivery confirmed! Great job Alex.");
+      await syncBackend(true);
+    }
+
+    function setRole(newRole) {
+      playChime('click');
+      state.role = newRole;
+      if (newRole === 'elder') state.elderStep = 'home';
+      if (newRole === 'family') state.familyStep = 'home';
+      if (newRole === 'helper') state.helperStep = 'home';
+      render();
+    }
+
+    function setTextSize(sz) {
+      state.textSize = sz;
+      document.documentElement.dataset.textsize = sz;
+      render();
+    }
+
+    function toggleVoice() {
+      state.voiceEnabled = !state.voiceEnabled;
+      if (!state.voiceEnabled) cancelSpeech();
+      else speakText("Voice assistant enabled.", true);
+      render();
+    }
+
+    // UI RENDERERS
+    function renderHeader() {
+      const roles = [
+        { id: 'elder', label: 'Elder (Mary)', icon: 'mic' },
+        { id: 'family', label: 'Family (Sarah)', icon: 'users' },
+        { id: 'helper', label: 'Helper (Alex)', icon: 'package' }
+      ];
+
+      return `
+        <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-black/[0.06] shadow-sm">
+          <div class="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5 shrink-0 cursor-pointer" onclick="setRole('elder')">
+              <div class="w-10 h-10 rounded-2xl bg-primary flex items-center justify-center shadow-soft">
+                <i data-lucide="heart" class="w-5 h-5 text-white fill-white"></i>
+              </div>
+              <div class="leading-tight">
+                <div class="font-extrabold text-lg text-ink flex items-center gap-1.5">
+                  Assist Me
+                  <span class="w-2 h-2 rounded-full ${state.apiOnline ? 'bg-success' : 'bg-blue-400'}" title="${state.apiOnline ? 'Live Backend Connected' : 'Browser Cloud Mode'}"></span>
+                </div>
+                <div class="text-[11px] text-muted font-semibold -mt-0.5 hidden sm:block">
+                  Just ask. We'll help.
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <div class="flex bg-bg rounded-2xl p-1 border border-black/[0.06]">
+                ${roles.map(r => `
+                  <button onclick="setRole('${r.id}')" class="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl text-sm font-bold transition-all ${state.role === r.id ? 'bg-primary text-white shadow-soft' : 'text-muted hover:text-ink hover:bg-white'}">
+                    <i data-lucide="${r.icon}" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">${r.label}</span>
+                  </button>
+                `).join('')}
+              </div>
+
+              <button onclick="toggleVoice()" title="Toggle AI Voice" class="w-10 h-10 rounded-2xl border border-black/[0.06] flex items-center justify-center transition-colors ${state.voiceEnabled ? 'bg-primary-light text-primary border-primary/20' : 'bg-bg text-muted hover:bg-white'}">
+                <i data-lucide="${state.voiceEnabled ? 'volume-2' : 'volume-x'}" class="w-5 h-5"></i>
+              </button>
+
+              <div class="relative">
+                <button onclick="toggleTextMenu()" id="textSizeBtn" class="h-10 px-3 rounded-2xl bg-bg border border-black/[0.06] flex items-center gap-1 text-ink hover:bg-white font-bold text-sm transition-colors">
+                  <i data-lucide="type" class="w-4 h-4"></i>
+                  <span class="text-xs uppercase">${state.textSize === 'xlarge' ? 'XL' : state.textSize === 'large' ? 'L' : 'M'}</span>
+                </button>
+                <div id="textMenu" class="hidden absolute right-0 mt-2 z-40 bg-white rounded-2xl shadow-soft border border-black/[0.06] p-1.5 min-w-[150px]">
+                  <button onclick="setTextSize('normal'); toggleTextMenu()" class="w-full text-left px-3 py-2 rounded-xl text-sm font-bold hover:bg-bg ${state.textSize==='normal'?'text-primary bg-primary-light':''}">Normal (M)</button>
+                  <button onclick="setTextSize('large'); toggleTextMenu()" class="w-full text-left px-3 py-2 rounded-xl text-sm font-bold hover:bg-bg ${state.textSize==='large'?'text-primary bg-primary-light':''}">Large (L)</button>
+                  <button onclick="setTextSize('xlarge'); toggleTextMenu()" class="w-full text-left px-3 py-2 rounded-xl text-sm font-bold hover:bg-bg ${state.textSize==='xlarge'?'text-primary bg-primary-light':''}">Extra Large (XL)</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="aiSpeakingBanner" class="hidden bg-primary text-white text-xs font-bold py-1.5 px-4 text-center flex items-center justify-center gap-2 animate-fadeUp">
+            <span class="flex items-center">
+              <span class="wave-bar !bg-white"></span>
+              <span class="wave-bar !bg-white"></span>
+              <span class="wave-bar !bg-white"></span>
+            </span>
+            <span id="aiSpeakingText">AI Speaking...</span>
+            <button onclick="cancelSpeech()" class="underline ml-2 text-white/80 hover:text-white">Stop</button>
+          </div>
+        </header>
+      `;
+    }
+
+    function toggleTextMenu() {
+      const menu = document.getElementById('textMenu');
+      if (menu) menu.classList.toggle('hidden');
+    }
+
+    function renderWelcome() {
+      return `
+        <div class="min-h-screen flex flex-col justify-center items-center px-6 py-12 max-w-4xl mx-auto w-full animate-fadeUp">
+          <div class="relative inline-flex items-center justify-center mb-8">
+            <div class="absolute w-28 h-28 rounded-full bg-primary/10 animate-pulseRing"></div>
+            <div class="absolute w-24 h-24 rounded-full bg-primary/15"></div>
+            <div class="relative w-20 h-20 rounded-full bg-primary flex items-center justify-center shadow-mic cursor-pointer" onclick="speakText('Welcome to Assist Me. Just ask, and we will help you.')">
+              <i data-lucide="mic" class="w-9 h-9 text-white fill-white"></i>
+            </div>
+          </div>
+
+          <h1 class="text-5xl sm:text-6xl font-extrabold text-ink tracking-tight text-center">
+            Assist Me
+          </h1>
+          <p class="mt-3 text-2xl sm:text-3xl font-extrabold text-primary text-center">
+            Just ask. We'll help.
+          </p>
+          <p class="mt-4 text-lg text-muted max-w-xl mx-auto text-center leading-relaxed font-semibold">
+            AI-powered voice assistance for older adults, with seamless family approval and trusted helper delivery.
+          </p>
+
+          <div class="mt-12 grid sm:grid-cols-3 gap-5 w-full max-w-3xl">
+            <div class="bg-white rounded-3xl p-6 shadow-soft border border-black/[0.04] text-center">
+              <div class="w-14 h-14 rounded-2xl bg-primary-light flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="mic" class="w-7 h-7 text-primary"></i>
+              </div>
+              <h3 class="font-extrabold text-lg text-ink">1. Speak</h3>
+              <p class="mt-1.5 text-muted text-sm font-semibold">Tell us what you need in natural voice.</p>
+            </div>
+            <div class="bg-white rounded-3xl p-6 shadow-soft border border-black/[0.04] text-center">
+              <div class="w-14 h-14 rounded-2xl bg-primary-light flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="users" class="w-7 h-7 text-primary"></i>
+              </div>
+              <h3 class="font-extrabold text-lg text-ink">2. Family approves</h3>
+              <p class="mt-1.5 text-muted text-sm font-semibold">Sarah verifies safety and cost before dispatch.</p>
+            </div>
+            <div class="bg-white rounded-3xl p-6 shadow-soft border border-black/[0.04] text-center">
+              <div class="w-14 h-14 rounded-2xl bg-primary-light flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="package-check" class="w-7 h-7 text-primary"></i>
+              </div>
+              <h3 class="font-extrabold text-lg text-ink">3. Helper delivers</h3>
+              <p class="mt-1.5 text-muted text-sm font-semibold">Alex picks up and delivers directly to door.</p>
+            </div>
+          </div>
+
+          <div class="mt-10 flex flex-col sm:flex-row gap-4 items-center">
+            <button
+              onclick="state.started = true; render(); speakText('Good morning Mary. What do you need help with? Just tap the microphone.');"
+              class="px-10 py-4 bg-primary text-white text-xl font-extrabold rounded-2xl shadow-mic hover:bg-primary-dark transition-all flex items-center gap-3"
+            >
+              Start Experience
+              <i data-lucide="arrow-right" class="w-6 h-6"></i>
+            </button>
+          </div>
+
+          <div class="mt-8 pt-6 border-t border-black/[0.06] text-center">
+            <span class="text-xs font-extrabold uppercase text-muted tracking-wider block mb-3">⚡ Quick Demo Presets for Judges</span>
+            <div class="flex flex-wrap justify-center gap-2">
+              <button onclick="state.started=true; handleTranscriptInput('I need milk and bread');" class="px-3.5 py-1.5 bg-white border border-black/[0.08] text-xs font-bold rounded-xl hover:border-primary hover:text-primary">Preset: Groceries</button>
+              <button onclick="state.started=true; handleTranscriptInput('I need my blood pressure medication');" class="px-3.5 py-1.5 bg-white border border-black/[0.08] text-xs font-bold rounded-xl hover:border-primary hover:text-primary">Preset: Medicine Safety</button>
+              <button onclick="state.started=true; handleTranscriptInput('Please take me to the doctor clinic');" class="px-3.5 py-1.5 bg-white border border-black/[0.08] text-xs font-bold rounded-xl hover:border-primary hover:text-primary">Preset: Clinic Ride</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderStatusTracker(status) {
+      if (status === 'rejected') {
+        return `<div class="flex items-center gap-3 text-error font-bold text-lg bg-errorLight p-4 rounded-2xl"><i data-lucide="x-circle" class="w-7 h-7"></i> Declined by family</div>`;
+      }
+      const flow = ['pending_family', 'approved', 'accepted', 'on_the_way', 'picked_up', 'completed'];
+      const labels = {
+        pending_family: 'Waiting for Sarah to approve',
+        approved: 'Approved by Sarah',
+        accepted: 'Helper Alex found',
+        on_the_way: 'Alex is on the way',
+        picked_up: 'Items picked up',
+        completed: 'Delivered safely'
+      };
+      const icons = {
+        pending_family: 'clock',
+        approved: 'check-circle-2',
+        accepted: 'user-check',
+        on_the_way: 'truck',
+        picked_up: 'package',
+        completed: 'check'
+      };
+      const activeIdx = flow.indexOf(status);
+
+      return `
+        <ol class="space-y-3">
+          ${flow.map((s, i) => {
+            const done = i < activeIdx;
+            const active = i === activeIdx;
+            return `
+              <li class="flex items-center gap-3.5">
+                <span class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all ${done ? 'bg-success text-white' : active ? 'bg-primary text-white shadow-ring ring-4 ring-primary/20' : 'bg-bg text-muted border-2 border-black/[0.06]'}">
+                  <i data-lucide="${icons[s]}" class="w-5 h-5"></i>
+                </span>
+                <span class="font-extrabold text-base ${done ? 'text-success' : active ? 'text-ink text-lg' : 'text-muted'}">
+                  ${labels[s]}
+                </span>
+              </li>
+            `;
+          }).join('')}
+        </ol>
+      `;
+    }
+
+    function renderElder() {
+      const req = state.activeRequest;
+      const hour = new Date().getHours();
+      const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+
+      if (state.elderStep === 'listening') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-10 text-center animate-fadeUp">
+            <div class="relative inline-flex items-center justify-center mb-8">
+              <div class="absolute w-36 h-36 rounded-full bg-primary/20 animate-pulseRing"></div>
+              <div class="w-24 h-24 rounded-full bg-primary text-white flex items-center justify-center shadow-mic">
+                <i data-lucide="mic" class="w-12 h-12"></i>
+              </div>
+            </div>
+            <h1 class="text-4xl font-extrabold text-ink">I'm listening...</h1>
+            <p class="mt-3 text-xl text-muted font-semibold">Tell me what you need, Mary</p>
+            <div class="mt-4 flex items-center justify-center gap-1.5 text-primary">
+              <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
+            </div>
+            <div class="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
+              <button onclick="stopVoiceListening(); state.elderStep='typing'; render();" class="px-6 py-3.5 bg-white border-2 border-black/[0.08] text-ink font-extrabold rounded-2xl hover:bg-bg shadow-sm">Type instead</button>
+              <button onclick="stopVoiceListening(); state.elderStep='home'; render();" class="px-6 py-3.5 bg-bg text-muted font-bold rounded-2xl hover:text-ink">Cancel</button>
+            </div>
+          </div>
+        `;
+      }
+
+      if (state.elderStep === 'typing') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-10 animate-fadeUp">
+            <div class="flex items-center justify-between mb-4">
+              <button onclick="state.elderStep='home'; render();" class="flex items-center gap-1.5 text-muted hover:text-ink font-bold"><i data-lucide="arrow-left" class="w-5 h-5"></i> Back</button>
+              <span class="text-xs font-bold text-muted uppercase">Type Request</span>
+            </div>
+            <h1 class="text-3xl font-extrabold text-ink">What do you need help with?</h1>
+            <p class="mt-2 text-muted font-semibold">Type anything in simple words:</p>
+            <textarea id="typeInput" rows="4" placeholder="e.g., I need groceries: milk, bread, and apples" class="mt-5 w-full text-xl font-semibold text-ink bg-white rounded-3xl p-6 shadow-soft border-2 border-black/[0.06] focus:border-primary focus:outline-none resize-none leading-relaxed"></textarea>
+            <div class="mt-6 flex gap-3">
+              <button onclick="handleTranscriptInput(document.getElementById('typeInput').value)" class="flex-1 py-4 bg-primary text-white text-xl font-extrabold rounded-2xl shadow-mic hover:bg-primary-dark transition-all flex items-center justify-center gap-2">Next <i data-lucide="arrow-right" class="w-5 h-5"></i></button>
+            </div>
+          </div>
+        `;
+      }
+
+      if (state.elderStep === 'medicine_safety') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-10 animate-fadeUp">
+            <div class="w-20 h-20 rounded-full bg-primary-light flex items-center justify-center mx-auto mb-6">
+              <i data-lucide="shield-check" class="w-10 h-10 text-primary"></i>
+            </div>
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-ink text-center">Safety Check</h1>
+            <p class="mt-3 text-center text-lg text-muted font-semibold">You mentioned medicine. Which medicine do you mean?</p>
+            <p class="mt-3 text-center text-base font-bold text-ink bg-primary-light rounded-2xl py-3 px-4">"${state.pending ? state.pending.raw : 'My medicine'}"</p>
+            <div class="mt-8 space-y-3.5">
+              <button onclick="state.elderStep='confirm'; render(); speakText('Understood. Your usual medicine.');" class="w-full py-4 px-6 bg-primary text-white text-lg font-extrabold rounded-2xl shadow-soft hover:bg-primary-dark transition-all flex items-center justify-center gap-3"><i data-lucide="pill" class="w-6 h-6"></i> My usual medicine</button>
+              <button onclick="state.elderStep='medicine_else'; render(); speakText('Let us ask Sarah to confirm the medicine details.');" class="w-full py-4 px-6 bg-white border-2 border-black/[0.08] text-ink text-lg font-extrabold rounded-2xl hover:bg-bg shadow-sm transition-all flex items-center justify-center gap-3"><i data-lucide="help-circle" class="w-6 h-6 text-muted"></i> Something else</button>
+              <button onclick="state.elderStep='medicine_else'; render();" class="w-full py-4 px-6 bg-bg text-muted text-lg font-bold rounded-2xl hover:text-ink transition-all flex items-center justify-center gap-3"><i data-lucide="user-check" class="w-6 h-6"></i> Ask my daughter Sarah</button>
+            </div>
+          </div>
+        `;
+      }
+
+      if (state.elderStep === 'medicine_else') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-10 animate-fadeUp text-center">
+            <div class="w-20 h-20 rounded-full bg-primary-light flex items-center justify-center mx-auto mb-6"><i data-lucide="pill" class="w-10 h-10 text-primary"></i></div>
+            <h1 class="text-3xl font-extrabold text-ink">Let's check with Sarah</h1>
+            <p class="mt-4 text-lg text-muted font-semibold max-w-md mx-auto">To be safe, we'll let Sarah know you need medicine so she can verify prescription details.</p>
+            <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+              <button onclick="sendConfirmedRequest('I need my medicine — please confirm details with Sarah')" class="px-8 py-4 bg-primary text-white text-lg font-extrabold rounded-2xl shadow-mic hover:bg-primary-dark transition-all">Send to Sarah</button>
+              <button onclick="state.elderStep='medicine_safety'; render();" class="px-8 py-4 bg-bg text-muted font-bold rounded-2xl hover:text-ink">Back</button>
+            </div>
+          </div>
+        `;
+      }
+
+      if (state.elderStep === 'confirm') {
+        const p = state.pending;
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-10 animate-fadeUp">
+            <div class="flex items-center gap-2 text-primary font-bold justify-center mb-2"><i data-lucide="sparkles" class="w-5 h-5"></i><span class="text-sm uppercase tracking-wide">I understood</span></div>
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-ink text-center leading-tight">${p.description}</h1>
+            <div class="mt-8 bg-white rounded-3xl shadow-soft border border-black/[0.04] p-7 space-y-4">
+              <div class="flex items-center justify-between"><span class="text-sm font-bold text-muted uppercase">Category</span><span class="text-base font-extrabold text-primary bg-primary-light px-4 py-1 rounded-full">${p.title}</span></div>
+              <div class="h-px bg-black/[0.06]"></div>
+              <div class="flex items-center justify-between"><span class="text-sm font-bold text-muted uppercase">Estimated Cost</span><span class="text-2xl font-extrabold text-ink">₹${p.estimatedCost}</span></div>
+              <div class="h-px bg-black/[0.06]"></div>
+              <div class="flex items-center justify-between"><span class="text-sm font-bold text-muted uppercase">Send To</span><span class="text-base font-bold text-muted flex items-center gap-1.5"><i data-lucide="users" class="w-4 h-4"></i> Daughter Sarah</span></div>
+            </div>
+            <div class="mt-8 space-y-3">
+              <button onclick="sendConfirmedRequest()" class="w-full py-5 bg-success text-white text-xl font-extrabold rounded-2xl shadow-soft hover:bg-emerald-700 transition-all flex items-center justify-center gap-3"><i data-lucide="check" class="w-7 h-7 stroke-[3]"></i> YES, SEND IT</button>
+              <div class="flex justify-center gap-4">
+                <button onclick="speakText('Your request: ${p.description}. Category: ${p.title}. Cost: ${p.estimatedCost} rupees.')" class="text-primary hover:underline font-bold text-sm flex items-center gap-1"><i data-lucide="volume-2" class="w-4 h-4"></i> Read aloud</button>
+                <button onclick="state.elderStep='home'; render();" class="text-muted hover:text-ink font-bold text-sm">Start over</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (state.elderStep === 'sent') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-10 animate-fadeUp text-center">
+            <div class="w-20 h-20 rounded-full bg-successLight flex items-center justify-center mx-auto mb-6"><i data-lucide="check-circle-2" class="w-12 h-12 text-success"></i></div>
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-ink">Request Sent!</h1>
+            <p class="mt-3 text-xl text-muted font-semibold">Sarah has received your request and will approve it shortly.</p>
+            <div class="mt-8"><button onclick="state.elderStep='home'; render();" class="px-10 py-4 bg-primary text-white text-lg font-extrabold rounded-2xl shadow-soft hover:bg-primary-dark transition-all">Track Status</button></div>
+          </div>
+        `;
+      }
+
+      if (req && req.status === 'completed') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-8 animate-fadeUp">
+            <div class="bg-white rounded-3xl shadow-soft border border-black/[0.04] p-8 text-center">
+              <div class="w-20 h-20 rounded-full bg-successLight flex items-center justify-center mx-auto mb-6"><i data-lucide="check-circle-2" class="w-12 h-12 text-success"></i></div>
+              <h2 class="text-3xl font-extrabold text-ink">Your request has arrived!</h2>
+              <p class="mt-3 text-2xl text-ink font-extrabold">${req.description}</p>
+              <p class="mt-2 text-base text-muted font-semibold">Delivered by ${req.helper} and confirmed with your family.</p>
+              <div class="mt-5 inline-flex items-center gap-2 text-success bg-successLight px-4 py-2 rounded-full text-sm font-bold"><i data-lucide="heart" class="w-4 h-4 fill-current"></i> Delivered with care</div>
+              <div class="mt-8"><button onclick="API.clearActive(); state.activeRequest=null; state.elderStep='home'; syncBackend();" class="w-full py-4 bg-primary text-white text-lg font-extrabold rounded-2xl shadow-soft hover:bg-primary-dark transition-all">Need something else? Tap here</button></div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (req && req.status === 'rejected') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-8 animate-fadeUp">
+            <div class="bg-white rounded-3xl shadow-soft border border-black/[0.04] p-8 text-center">
+              <div class="w-16 h-16 rounded-full bg-errorLight flex items-center justify-center mx-auto mb-5"><i data-lucide="x-circle" class="w-9 h-9 text-error"></i></div>
+              <h2 class="text-2xl font-extrabold text-ink">Request Declined by Sarah</h2>
+              <p class="mt-2 text-lg text-ink font-semibold">${req.rejectReason || 'Sarah asked to hold on this request.'}</p>
+              <div class="mt-6 flex gap-3 justify-center">
+                <button onclick="API.clearActive(); state.activeRequest=null; state.elderStep='home'; syncBackend();" class="px-6 py-3.5 bg-primary text-white font-bold rounded-2xl">Create New Request</button>
+                <button onclick="state.callingModal=true; render();" class="px-6 py-3.5 bg-bg text-ink font-bold rounded-2xl border">Call Sarah</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (req && req.status !== 'completed' && req.status !== 'rejected') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-8 space-y-6 animate-fadeUp">
+            <div class="bg-white rounded-3xl shadow-soft border border-black/[0.04] p-7">
+              <div class="flex items-center justify-between mb-4">
+                <span class="text-xs font-extrabold text-primary bg-primary-light px-3 py-1 rounded-full uppercase tracking-wide">Active Request</span>
+                <button onclick="speakText('Your request for ${req.description} is currently ${req.status.replace(/_/g,' ')}')" class="text-primary hover:text-primary-dark font-bold text-sm flex items-center gap-1"><i data-lucide="volume-2" class="w-4 h-4"></i> Read aloud</button>
+              </div>
+              <h2 class="text-2xl font-extrabold text-ink leading-snug">${req.description}</h2>
+              <div class="mt-6">${renderStatusTracker(req.status)}</div>
+            </div>
+            <div class="flex gap-3"><button onclick="state.callingModal=true; render();" class="flex-1 py-4 bg-white border-2 border-black/[0.06] rounded-2xl font-extrabold text-ink hover:bg-bg shadow-sm flex items-center justify-center gap-2"><i data-lucide="phone" class="w-5 h-5 text-success"></i> Call Sarah (Daughter)</button></div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="max-w-2xl mx-auto px-5 py-6 space-y-8 animate-fadeUp">
+          <div class="text-center pt-2">
+            <div class="flex items-center justify-center gap-2">
+              <h1 class="text-3xl sm:text-4xl font-extrabold text-ink">${greeting}, Mary</h1>
+              <button onclick="speakText('${greeting} Mary. What do you need help with? Just tap the microphone.')" class="text-primary hover:scale-110 transition-all p-1" title="Read Greeting"><i data-lucide="volume-2" class="w-6 h-6"></i></button>
+            </div>
+            <p class="mt-2 text-lg text-muted font-semibold">What do you need help with today?</p>
+          </div>
+
+          <div class="flex flex-col items-center">
+            <button onclick="state.elderStep='listening'; startVoiceListening((t) => handleTranscriptInput(t)); render();" class="relative w-44 h-44 rounded-full bg-primary text-white flex flex-col items-center justify-center shadow-mic hover:scale-105 active:scale-95 transition-all group">
+              <div class="absolute inset-0 rounded-full bg-primary/20 animate-pulseRing"></div>
+              <i data-lucide="mic" class="w-16 h-16 stroke-[2.5] relative z-10"></i>
+              <span class="text-xs uppercase font-extrabold tracking-widest mt-2 relative z-10">Tap to Speak</span>
+            </button>
+          </div>
+
+          <div class="text-center">
+            <button onclick="state.elderStep='typing'; render();" class="inline-flex items-center gap-2 text-primary font-extrabold text-base hover:underline"><i data-lucide="pencil" class="w-4 h-4"></i> Or type your request</button>
+          </div>
+
+          <div>
+            <h3 class="text-xs font-extrabold text-muted uppercase tracking-wider mb-3 px-1">Quick Help (1-Tap)</h3>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <button onclick="handleTranscriptInput('I need groceries')" class="bg-white p-4 rounded-2xl shadow-soft border border-black/[0.04] text-center hover:border-primary hover:shadow-md transition-all">
+                <i data-lucide="shopping-bag" class="w-6 h-6 text-primary mx-auto mb-1.5"></i>
+                <span class="font-extrabold text-sm text-ink block">Groceries</span>
+              </button>
+              <button onclick="handleTranscriptInput('I need a ride')" class="bg-white p-4 rounded-2xl shadow-soft border border-black/[0.04] text-center hover:border-primary hover:shadow-md transition-all">
+                <i data-lucide="car" class="w-6 h-6 text-primary mx-auto mb-1.5"></i>
+                <span class="font-extrabold text-sm text-ink block">A Ride</span>
+              </button>
+              <button onclick="handleTranscriptInput('I need help at home')" class="bg-white p-4 rounded-2xl shadow-soft border border-black/[0.04] text-center hover:border-primary hover:shadow-md transition-all">
+                <i data-lucide="home" class="w-6 h-6 text-primary mx-auto mb-1.5"></i>
+                <span class="font-extrabold text-sm text-ink block">Help at Home</span>
+              </button>
+              <button onclick="handleTranscriptInput('I need my medicine')" class="bg-white p-4 rounded-2xl shadow-soft border border-black/[0.04] text-center hover:border-primary hover:shadow-md transition-all">
+                <i data-lucide="pill" class="w-6 h-6 text-primary mx-auto mb-1.5"></i>
+                <span class="font-extrabold text-sm text-ink block">Medicine</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="pt-2">
+            <button onclick="state.callingModal=true; render(); speakText('Calling Sarah now.');" class="w-full py-4 bg-white rounded-2xl border border-black/[0.06] shadow-soft flex items-center justify-between px-6 hover:bg-bg transition-all">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-successLight flex items-center justify-center text-success"><i data-lucide="phone" class="w-5 h-5"></i></div>
+                <div class="text-left">
+                  <div class="font-extrabold text-ink">Call Sarah</div>
+                  <div class="text-xs text-muted font-semibold">Your Daughter · Instant call</div>
+                </div>
+              </div>
+              <i data-lucide="arrow-right" class="w-5 h-5 text-muted"></i>
+            </button>
+          </div>
+
+          ${state.history && state.history.length > 0 ? `
+            <div>
+              <h3 class="text-xs font-extrabold text-muted uppercase tracking-wider mb-3 px-1">Past Requests</h3>
+              <div class="space-y-2.5">
+                ${state.history.slice(0, 3).map(h => `
+                  <div class="bg-white p-4 rounded-2xl border border-black/[0.04] shadow-sm flex items-center justify-between">
+                    <div>
+                      <div class="font-bold text-ink text-sm">${h.description}</div>
+                      <div class="text-xs text-muted font-semibold mt-0.5">₹${h.estimatedCost} · ${h.status === 'completed' ? 'Delivered' : 'Declined'}</div>
+                    </div>
+                    <button onclick="handleTranscriptInput('${h.description}')" class="px-3 py-1.5 bg-primary-light text-primary font-extrabold text-xs rounded-xl hover:bg-primary hover:text-white transition-all">Repeat</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderFamily() {
+      const req = state.activeRequest;
+      if (state.familyStep === 'approving') {
+        return `
+          <div class="max-w-2xl mx-auto px-5 py-12 text-center animate-fadeUp">
+            <div class="w-20 h-20 rounded-full bg-successLight flex items-center justify-center mx-auto mb-6"><i data-lucide="check-circle-2" class="w-12 h-12 text-success"></i></div>
+            <h1 class="text-3xl font-extrabold text-ink">Request Approved!</h1>
+            <p class="mt-3 text-lg text-muted font-semibold">Helper Alex has been notified and will accept the task.</p>
+            <div class="mt-8"><button onclick="state.familyStep='home'; render();" class="px-8 py-3.5 bg-primary text-white font-extrabold rounded-2xl shadow-soft hover:bg-primary-dark">Back to Dashboard</button></div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="max-w-2xl mx-auto px-5 py-8 space-y-6 animate-fadeUp">
+          <div class="flex items-center justify-between pb-2">
+            <div>
+              <h1 class="text-3xl font-extrabold text-ink">Mom's Care Hub</h1>
+              <p class="text-sm text-muted font-semibold">Logged in as Sarah (Daughter)</p>
+            </div>
+            <span class="px-3 py-1.5 bg-successLight text-success rounded-full text-xs font-extrabold">● Connected</span>
+          </div>
+
+          ${req && req.status === 'pending_family' ? `
+            <div class="bg-white rounded-3xl shadow-soft border-2 border-primary/20 p-7">
+              <div class="flex items-center gap-2 text-primary font-extrabold text-sm mb-3"><i data-lucide="alert-circle" class="w-5 h-5"></i> Approval Requested from Mom</div>
+              <h2 class="text-2xl font-extrabold text-ink">${req.title}</h2>
+              <p class="mt-2 text-xl text-ink font-bold">${req.description}</p>
+              <div class="mt-6 grid grid-cols-2 gap-4 bg-bg p-4 rounded-2xl">
+                <div><span class="text-xs font-bold text-muted uppercase block">Estimated Cost</span><span class="text-xl font-extrabold text-ink">₹${req.estimatedCost}</span></div>
+                <div><span class="text-xs font-bold text-muted uppercase block">Delivery Location</span><span class="text-base font-extrabold text-ink">${req.location || "Mary's Home"}</span></div>
+              </div>
+              <div class="mt-6 grid grid-cols-2 gap-3">
+                <button onclick="advanceStatus('approved'); state.familyStep='approving'; render();" class="py-4 bg-success text-white font-extrabold text-lg rounded-2xl shadow-soft hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"><i data-lucide="check" class="w-6 h-6 stroke-[3]"></i> APPROVE</button>
+                <button onclick="state.rejectModal=true; render();" class="py-4 bg-errorLight text-error font-extrabold text-lg rounded-2xl hover:bg-red-200 transition-all flex items-center justify-center gap-2"><i data-lucide="x" class="w-6 h-6 stroke-[3]"></i> REJECT</button>
+              </div>
+            </div>
+          ` : ''}
+
+          ${req && req.status !== 'pending_family' && req.status !== 'rejected' && req.status !== 'completed' ? `
+            <div class="bg-white rounded-3xl shadow-soft border border-black/[0.04] p-7">
+              <div class="flex items-center gap-2 text-success font-extrabold text-sm mb-3"><i data-lucide="check-circle-2" class="w-5 h-5"></i> Request In Progress</div>
+              <h2 class="text-xl font-extrabold text-ink">${req.description}</h2>
+              <p class="text-xs text-muted font-bold mt-1">Assigned to helper ${req.helper}</p>
+              <div class="mt-6">${renderStatusTracker(req.status)}</div>
+            </div>
+          ` : ''}
+
+          ${!req || req.status === 'completed' || req.status === 'rejected' ? `
+            <div class="bg-white rounded-3xl p-8 shadow-soft border border-black/[0.04] text-center">
+              <div class="w-16 h-16 rounded-full bg-bg flex items-center justify-center mx-auto mb-4"><i data-lucide="check-circle-2" class="w-8 h-8 text-muted"></i></div>
+              <h2 class="text-2xl font-extrabold text-ink">All Clear!</h2>
+              <p class="mt-2 text-muted font-semibold">Mom hasn't requested any pending assistance right now.</p>
+            </div>
+          ` : ''}
+
+          ${state.stats ? `
+            <div class="grid grid-cols-3 gap-3">
+              <div class="bg-white p-4 rounded-2xl border border-black/[0.04] shadow-sm text-center">
+                <div class="text-2xl font-extrabold text-ink">${state.stats.completedDeliveries}</div>
+                <div class="text-xs text-muted font-bold mt-0.5">Completed</div>
+              </div>
+              <div class="bg-white p-4 rounded-2xl border border-black/[0.04] shadow-sm text-center">
+                <div class="text-2xl font-extrabold text-primary">₹${state.stats.totalDeliveredValue}</div>
+                <div class="text-xs text-muted font-bold mt-0.5">Total Value</div>
+              </div>
+              <div class="bg-white p-4 rounded-2xl border border-black/[0.04] shadow-sm text-center">
+                <div class="text-2xl font-extrabold text-success">${state.stats.totalRequests}</div>
+                <div class="text-xs text-muted font-bold mt-0.5">All Tasks</div>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderHelper() {
+      const req = state.activeRequest;
+      const deliveries = (state.history || []).filter(h => h.status === 'completed').length;
+
+      return `
+        <div class="max-w-2xl mx-auto px-5 py-8 space-y-6 animate-fadeUp">
+          <div class="flex items-center justify-between pb-2">
+            <div>
+              <h1 class="text-3xl font-extrabold text-ink">Helper Dashboard</h1>
+              <p class="text-sm text-muted font-semibold">Logged in as Alex (Trusted Neighbor)</p>
+            </div>
+            <div class="text-right">
+              <span class="text-xl font-extrabold text-primary">${deliveries}</span>
+              <span class="text-xs text-muted font-bold block">Deliveries</span>
+            </div>
+          </div>
+
+          ${req && req.status !== 'pending_family' && req.status !== 'rejected' && req.status !== 'completed' ? `
+            <div class="bg-white rounded-3xl shadow-soft border border-black/[0.04] p-7">
+              <div class="flex items-center gap-2 text-primary font-extrabold text-sm mb-3"><i data-lucide="user-check" class="w-5 h-5"></i> ${req.status === 'approved' ? 'New Task Available' : 'Your Active Task'}</div>
+              <h2 class="text-2xl font-extrabold text-ink">${req.title}</h2>
+              <p class="mt-2 text-xl text-ink font-bold leading-relaxed">${req.description}</p>
+              <div class="mt-6 space-y-3 bg-bg p-4 rounded-2xl text-sm font-bold">
+                <div class="flex justify-between"><span class="text-muted">Elder:</span><span class="text-ink">${req.elder} (${req.location || "Mary's home"})</span></div>
+                <div class="flex justify-between"><span class="text-muted">Approved by:</span><span class="text-ink">${req.family} (Daughter)</span></div>
+                <div class="flex justify-between"><span class="text-muted">Estimated value:</span><span class="text-ink">₹${req.estimatedCost}</span></div>
+              </div>
+              <div class="mt-6">
+                ${req.status === 'approved' ? `<button onclick="advanceStatus('accepted')" class="w-full py-4 bg-primary text-white font-extrabold text-lg rounded-2xl shadow-soft hover:bg-primary-dark transition-all flex items-center justify-center gap-2"><i data-lucide="check-circle-2" class="w-6 h-6"></i> ACCEPT TASK</button>` : ''}
+                ${req.status === 'accepted' ? `<button onclick="advanceStatus('on_the_way')" class="w-full py-4 bg-primary text-white font-extrabold text-lg rounded-2xl shadow-soft hover:bg-primary-dark transition-all flex items-center justify-center gap-2"><i data-lucide="truck" class="w-6 h-6"></i> I'M ON MY WAY</button>` : ''}
+                ${req.status === 'on_the_way' ? `<button onclick="advanceStatus('picked_up')" class="w-full py-4 bg-primary text-white font-extrabold text-lg rounded-2xl shadow-soft hover:bg-primary-dark transition-all flex items-center justify-center gap-2"><i data-lucide="package" class="w-6 h-6"></i> PICKED UP ITEMS</button>` : ''}
+                ${req.status === 'picked_up' ? `<button onclick="advanceStatus('completed')" class="w-full py-4 bg-success text-white font-extrabold text-lg rounded-2xl shadow-soft hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"><i data-lucide="check-circle-2" class="w-6 h-6"></i> CONFIRM DELIVERED</button>` : ''}
+              </div>
+            </div>
+          ` : `
+            <div class="bg-white rounded-3xl p-8 shadow-soft border border-black/[0.04] text-center">
+              <div class="w-16 h-16 rounded-full bg-bg flex items-center justify-center mx-auto mb-4"><i data-lucide="clipboard-list" class="w-8 h-8 text-muted"></i></div>
+              <h2 class="text-2xl font-extrabold text-ink">No Tasks Right Now</h2>
+              <p class="mt-2 text-muted font-semibold">When Sarah approves a request from Mary, it will appear here instantly.</p>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    function renderModals() {
+      let html = '';
+      if (state.callingModal) {
+        html += `
+          <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl max-w-sm w-full p-7 text-center shadow-2xl animate-fadeUp">
+              <div class="w-20 h-20 rounded-full bg-successLight flex items-center justify-center mx-auto mb-4 animate-bounce"><i data-lucide="phone" class="w-10 h-10 text-success"></i></div>
+              <h3 class="text-2xl font-extrabold text-ink">Calling Sarah...</h3>
+              <p class="text-sm text-muted font-semibold mt-1">Daughter · (555) 0102</p>
+              <div class="mt-8"><button onclick="state.callingModal=false; render();" class="w-full py-3.5 bg-error text-white font-extrabold rounded-2xl hover:bg-red-700">End Call</button></div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (state.rejectModal) {
+        html += `
+          <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl max-w-md w-full p-7 shadow-2xl animate-fadeUp">
+              <h3 class="text-2xl font-extrabold text-ink">Decline Request</h3>
+              <p class="text-sm text-muted font-semibold mt-1">Please enter a reason so Mom knows why:</p>
+              <textarea id="rejectReasonInput" rows="3" placeholder="e.g., I already ordered this for delivery tomorrow" class="mt-4 w-full p-4 bg-bg border border-black/[0.08] rounded-2xl font-semibold text-ink focus:outline-none focus:border-error"></textarea>
+              <div class="mt-6 flex gap-3">
+                <button onclick="state.rejectModal=false; render();" class="flex-1 py-3 bg-bg text-muted font-bold rounded-2xl hover:text-ink">Cancel</button>
+                <button onclick="const r = document.getElementById('rejectReasonInput').value; advanceStatus('rejected', r); state.rejectModal=false; render();" class="flex-1 py-3 bg-error text-white font-extrabold rounded-2xl hover:bg-red-700">Confirm Decline</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      return html;
+    }
+
+    function render() {
+      const app = document.getElementById('app');
+      if (!app) return;
+      if (!state.started) {
+        app.innerHTML = renderWelcome() + renderModals();
+        lucide.createIcons();
+        return;
+      }
+      let mainContent = '';
+      if (state.role === 'elder') mainContent = renderElder();
+      else if (state.role === 'family') mainContent = renderFamily();
+      else if (state.role === 'helper') mainContent = renderHelper();
+
+      app.innerHTML = `
+        ${renderHeader()}
+        <main class="flex-1 py-4 sm:py-6">${mainContent}</main>
+        <footer class="text-center text-xs text-muted font-semibold py-4 border-t border-black/[0.04]">
+          Assist Me · Voice AI Elder Care Platform · Hackathon Edition
+        </footer>
+        ${renderModals()}
+      `;
+      lucide.createIcons();
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      await syncBackend(true);
+      render();
+    });
+  </script>
+</body>
+</html>
