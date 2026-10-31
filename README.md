@@ -1,5 +1,4 @@
 # Assist Me · Voice AI Elder Care Platform
-> **Hackathon Submission Package**
 
 ---
 
@@ -28,7 +27,7 @@ python run_backend.py
 ```
 
 Then open your browser at:
-👉 **[http://localhost:5000](http://localhost:5000)**
+👉 **[http://localhost:5000](https://tanmay-creates.github.io/Assist_Me_Submission/)**
 
 ---
 
